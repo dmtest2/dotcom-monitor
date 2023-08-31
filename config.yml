@@ -1,0 +1,259 @@
+# This code is licensed from CircleCI to the user under the MIT license.
+# See here for details: https://circleci.com/developer/orbs/licensing
+---
+version: 2.1
+description: |
+    Run load tests and reliability tests using DM.
+    source_url: https://github.com/dmtest2/dotcom-monitor.git
+
+commands:
+    login:
+        description: Login
+        parameters:
+            uid:
+                default: ""
+                description: Client UID to login to DM API
+                type: string
+            stress_id:
+                default: ""
+                description: Stress test ID
+                type: string
+            failed_sessions_percentage:
+                default: 3
+                description: Failed Sessions Percentage
+                type: integer
+        steps:
+            #- run: mkdir -p workspace
+            - run:
+                name: Login to API
+                command: |
+                    export ClientUID="<< parameters.uid >>"
+                    echo "export ClientUID=\"$ClientUID\"" >> env.vars
+                    export ST_ID="<< parameters.stress_id >>"
+                    echo "export ST_ID=\"$ST_ID\"" >> env.vars
+                    percent_value=<< parameters.failed_sessions_percentage >>
+                    if [[ percent_value -lt 0 ]] || [[ percent_value -gt 100 ]]
+                    then percent_value=3
+                    fi
+                    export percent=$percent_value
+                    echo "export percent=\"$percent\"" >> env.vars
+                    resp=$(curl -sb -X POST https://api.dotcom-monitor.com/config_api_v1/LogIn?TypeUID=LogInAsLvWebApi \
+                        --cookie-jar dm.auth -v \
+                        -H "Content-Type: application/json" \
+                        -d '{ "UID" : "<< parameters.uid >>" }')
+                    if [[ $resp = "{\"Success\":true,\"Result\":\"OK\"}" ]]
+                    then echo "client logged in"
+                    else
+                        echo "ERROR logging in"
+                        exit 403
+                    fi
+            - persist_to_workspace:
+                root: .
+                paths:
+                    - .
+
+    get_stress:
+        description: Get Stress test details
+        steps:
+            - attach_workspace:
+                at: .
+            - run:
+                name: Get Stress Test details
+                command: |
+                    source env.vars
+                    resp=$(curl -sb -X GET https://api.dotcom-monitor.com/config_api_v1/StressTest/$ST_ID \
+                        --cookie dm.auth \
+                        -H "Content-Type: application/json")
+                    echo "stress test $ST_ID getting details"
+                    arr=$(echo $resp | grep -o '"DurationSec":[0-9]*' | grep -o '[^:]*$')
+                    result=0
+                    for i in ${arr[@]}; do
+                        result=$((result+i))
+                    done
+                    if [[ $result -le 0 ]]
+                    then
+                        echo "ERROR getting Stress $ST_ID settings"
+                        exit 403
+                    fi
+                    export duration=$result
+                    echo "export duration=$duration" >> env.vars 
+            - persist_to_workspace:
+                root: .
+                paths:
+                    - .
+
+    run_stress:
+        description: Start Stress
+        steps:
+            - attach_workspace:
+                at: .
+            - run:
+                name: Run Stress Test
+                command: |
+                    source env.vars
+                    resp=$(curl -sb -X POST https://api.dotcom-monitor.com/config_api_v1/StressTest/$ST_ID/Run \
+                        --cookie dm.auth \
+                        -H "Content-Type: application/json" \
+                        -d '{ "UserName": "circleci" }')
+                    echo "stress test $ST_ID starting"
+                    status=$(echo $resp | grep -o '"Success":[a-z]*' | grep -o '[^:]*$')
+                    result_id=$(echo $resp | grep -o '"Result":[0-9]*' | grep -o '[^:]*$')
+                    if [[ $status = "true" ]] && [[ $result_id -gt 0 ]]
+                    then
+                        echo "Stress $ST_ID has been started successfully; result stress id $result_id"
+                        export Result_ID=$result_id
+                        echo "export Result_ID=$Result_ID" >> env.vars 
+                    else
+                        echo "ERROR starting Stress $ST_ID"
+                        exit 403
+                    fi
+            - persist_to_workspace:
+                root: .
+                paths:
+                    - .
+
+    get_st_result:
+        description: Get Stress Results
+        steps:
+            - attach_workspace:
+                at: .
+            - run:
+                name: Check Stress Test results
+                command: |
+                    source env.vars
+                    echo "stress test result $Result_ID for original stress $ST_ID checking"
+                    total=$((duration+600))
+                    till1=$(date -d "$(date) + $duration seconds")
+                    till2=$(date -d "$(date) + $total seconds")
+                    u1=$(date -d "$till1" +'%s.%3N')
+                    u2=$(date -d "$till2" +'%s.%3N')
+                    echo "checking from $(date) till $till2"
+                    found=0
+                    now=$(date -d "$(date)" +'%s.%3N')
+                    while [[ found -ne 1 ]] && ! [[ $now > $u2 ]]
+                    do
+                        if [[ $now > $u1 ]]
+                        then sleep 60s
+                        else sleep 120s
+                        fi
+                        resp=$(curl -sb -X GET https://api.dotcom-monitor.com/config_api_v1/StressTest/$Result_ID/Result \
+                            --cookie dm.auth \
+                            -H "Content-Type: application/json")
+                        {
+                            #You are not authorised check
+                            if [[ $resp == *"You are not authorised"* ]]
+                            then
+                                echo "$(date) need to relogin"
+                                resp=$(curl -sb -X POST https://api.dotcom-monitor.com/config_api_v1/LogIn?TypeUID=LogInAsLvWebApi \
+                                    --cookie-jar dm.auth -v \
+                                    -H "Content-Type: application/json" \
+                                    -d '{ "UID" : "'$ClientUID'" }')
+                                #echo $resp
+                                if [[ $resp = "{\"Success\":true,\"Result\":\"OK\"}" ]]
+                                then echo "client re-logged in"
+                                else
+                                    echo "ERROR logging in"
+                                    exit 403
+                                fi
+                                resp=$(curl -sb -X GET https://api.dotcom-monitor.com/config_api_v1/StressTest/$Result_ID/Result \
+                                    --cookie dm.auth \
+                                    -H "Content-Type: application/json")
+                            fi
+                            #echo $resp
+                            status=$(echo $resp | grep -o '"StatusDesc":[^,]*' | grep -o '[^"]*"$' | grep -o '^[^"]*')
+                            status_code=$(echo $resp | grep -o '"StatusCode":[0-9]*' | grep -o '[^:]*$')
+                            has_data=$(echo $resp | grep -o '"HasData":[a-z]*' | grep -o '[^:]*$')
+                            echo "$(date) results: $status; $status_code; $has_data"
+                            if [[ $status = "Completed" ]] && [[ $has_data = "true" ]]
+                            then
+                                found=1
+                                #check SessionsCountFailed SessionsCount
+                                sessions=$(echo $resp | grep -o '"SessionsCount":[0-9]*' | grep -o '[^:]*$')
+                                sessions_failed=$(echo $resp | grep -o '"SessionsCountFailed":[0-9]*' | grep -o '[^:]*$')
+                                limit=$(($sessions * $percent))
+                                sessions_failed=$((sessions_failed * 100))
+                                if [[ $sessions_failed -gt $limit ]]
+                                then
+                                    echo "ERROR stress $Result_ID too many failed sessions"
+                                    exit 501
+                                fi
+                            fi
+                        } || echo "$(date) no data"
+                        now=$(date -d "$(date)" +'%s.%3N')
+                    done
+                    if [[ $found -eq 1 ]]
+                    then echo "Completed!"
+                    else
+                        echo "ERROR stress $Result_ID failed"
+                        exit 500
+                    fi
+            - persist_to_workspace:
+                root: .
+                paths:
+                    - .
+
+jobs:
+  build:
+    docker:
+      - image: cimg/base:current
+    #resource_class: dmtest2/rc2
+    steps:
+      #- checkout
+      - run: echo "this is the build job"
+  login_via_api:
+    docker:
+      - image: cimg/base:current
+    #resource_class: dmtest2/rc2
+    steps:
+      - login:
+          uid: "99732cae08ae43b7a1d17f3564fdf135"
+          stress_id: "131492"
+          failed_sessions_percentage: 5
+  get_st_details:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - get_stress
+  start:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - run_stress
+  get_st_results:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - get_st_result
+
+# Orchestrate our job run sequence
+workflows:
+  build_and_test:
+    jobs:
+      - build:
+          filters:
+            tags:
+              only: /^v.*/
+      - login_via_api:
+          requires:
+            - build
+          filters:
+            tags:
+              only: /^v.*/
+      - get_st_details:
+          requires:
+            - login_via_api
+          filters:
+            tags:
+              only: /^v.*/
+      - start:
+          requires:
+            - get_st_details
+          filters:
+            tags:
+              only: /^v.*/
+      - get_st_results:
+          requires:
+            - start
+          filters:
+            tags:
+              only: /^v.*/
