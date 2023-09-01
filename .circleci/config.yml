@@ -229,6 +229,7 @@ jobs:
       - image: cimg/base:current
     steps:
       - run: circleci --help
+      - run: circleci orb list
       - run: circleci orb publish https://github.com/dmtest2/dotcom-monitor.git dmtest2/dotcom-monitor
 
 # Orchestrate our job run sequence
