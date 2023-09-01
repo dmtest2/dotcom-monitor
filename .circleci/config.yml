@@ -228,6 +228,7 @@ jobs:
     docker:
       - image: cimg/base:current
     steps:
+      - run: circleci --help
       - run: circleci orb publish https://github.com/dmtest2/dotcom-monitor.git dmtest2/dotcom-monitor
 
 # Orchestrate our job run sequence
@@ -256,15 +257,16 @@ workflows:
           filters:
             tags:
               only: /^v.*/
-      - get_st_results:
-          requires:
-            - start
-          filters:
-            tags:
-              only: /^v.*/
+      #- get_st_results:
+      #    requires:
+      #      - start
+      #    filters:
+      #      tags:
+      #        only: /^v.*/
       - publish:
           requires:
-            - get_st_results
+            #- get_st_results
+            - start
           filters:
             tags:
               only: /^v.*/
