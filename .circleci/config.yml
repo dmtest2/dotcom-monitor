@@ -206,7 +206,7 @@ jobs:
     #resource_class: dmtest2/rc2
     steps:
       - login:
-          uid: "99732cae08ae43b7a1d17f3564fdf135"
+          uid: "43297374CF8D496BABA8010CC12A5817"
           stress_id: "131492"
           failed_sessions_percentage: 5
   get_st_details:
