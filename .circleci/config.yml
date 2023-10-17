@@ -11,13 +11,11 @@ commands:
         description: Login
         parameters:
             uid:
-                default: ""
                 description: Client UID to login to DM API
                 type: string
             stress_id:
-                default: ""
                 description: Stress test ID
-                type: string
+                type: integer
             failed_sessions_percentage:
                 default: 3
                 description: Failed Sessions Percentage
