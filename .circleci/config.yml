@@ -3,7 +3,7 @@
 ---
 version: 2.1
 description: |
-    Run load tests and reliability tests using DM.
+    Run load tests using www.loadview-testing.com platform. This orb allows for running test in the www.loadview-testing.com cloud as part of your deployment pipeline.
     source_url: https://github.com/dmtest2/dotcom-monitor.git
 
 commands:
