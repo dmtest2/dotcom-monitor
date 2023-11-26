@@ -3,22 +3,22 @@
 ---
 version: 2.1
 description: |
-    Run load tests using www.loadview-testing.com platform. This orb allows for running test in the www.loadview-testing.com cloud as part of your deployment pipeline.
+    Run load tests using the LoadView platform. This orb allows the running of LoadView tests in the LoadView cloud as part of your deployment pipeline. 
     source_url: https://github.com/dmtest2/dotcom-monitor.git
 
 commands:
     login:
-        description: Login
+        description: Logins to the LoadView API with the provided UID 
         parameters:
             uid:
-                description: Client UID to login to DM API
+                description: UID to login to the LoadView API.
                 type: string
             stress_id:
-                description: Stress test ID
+                description: ID of the load test you want to execute. 
                 type: integer
             failed_sessions_percentage:
                 default: 3
-                description: Failed Sessions Percentage
+                description: Failed sessions threshold. If a percentage of failed sessions in the test run exceeds the threshold, an error will be triggered.  
                 type: integer
         steps:
             #- run: mkdir -p workspace
@@ -40,9 +40,9 @@ commands:
                         -H "Content-Type: application/json" \
                         -d '{ "UID" : "<< parameters.uid >>" }')
                     if [[ $resp = "{\"Success\":true,\"Result\":\"OK\"}" ]]
-                    then echo "client logged in"
+                    then echo "Login Successful"
                     else
-                        echo "ERROR logging in"
+                        echo "Error: Login failed. Incorrect login parameters"
                         exit 403
                     fi
             - persist_to_workspace:
@@ -51,12 +51,12 @@ commands:
                     - .
 
     get_stress:
-        description: Get Stress test details
+        description: Gets details of the test with the provided ID
         steps:
             - attach_workspace:
                 at: .
             - run:
-                name: Get Stress Test details
+                name: Get Load Test details
                 command: |
                     source env.vars
                     resp=$(curl -sb -X GET https://api.dotcom-monitor.com/config_api_v1/StressTest/$ST_ID \
@@ -70,7 +70,7 @@ commands:
                     done
                     if [[ $result -le 0 ]]
                     then
-                        echo "ERROR getting Stress $ST_ID settings"
+                        echo "ERROR: Failed to get Load Test $ST_ID settings"
                         exit 403
                     fi
                     export duration=$result
@@ -81,7 +81,7 @@ commands:
                     - .
 
     run_stress:
-        description: Start Stress
+        description: Starts a new run of the test with the specified ID
         steps:
             - attach_workspace:
                 at: .
@@ -98,11 +98,11 @@ commands:
                     result_id=$(echo $resp | grep -o '"Result":[0-9]*' | grep -o '[^:]*$')
                     if [[ $status = "true" ]] && [[ $result_id -gt 0 ]]
                     then
-                        echo "Stress $ST_ID has been started successfully; result stress id $result_id"
+                        echo "Load Test $ST_ID has been started successfully; result test id $result_id"
                         export Result_ID=$result_id
                         echo "export Result_ID=$Result_ID" >> env.vars 
                     else
-                        echo "ERROR starting Stress $ST_ID"
+                        echo "ERROR: Failed to start Load Test $ST_ID"
                         exit 403
                     fi
             - persist_to_workspace:
@@ -111,15 +111,15 @@ commands:
                     - .
 
     get_st_result:
-        description: Get Stress Results
+        description: Get Load Test results
         steps:
             - attach_workspace:
                 at: .
             - run:
-                name: Check Stress Test results
+                name: Check Load Test results
                 command: |
                     source env.vars
-                    echo "stress test result $Result_ID for original stress $ST_ID checking"
+                    echo "Load test result $Result_ID for the original test $ST_ID"
                     total=$((duration+600))
                     till1=$(date -d "$(date) + $duration seconds")
                     till2=$(date -d "$(date) + $total seconds")
@@ -138,19 +138,19 @@ commands:
                             --cookie dm.auth \
                             -H "Content-Type: application/json")
                         {
-                            #You are not authorised check
+                            #Authorization check
                             if [[ $resp == *"You are not authorised"* ]]
                             then
-                                echo "$(date) need to relogin"
+                                echo "$(date) please re-login"
                                 resp=$(curl -sb -X POST https://api.dotcom-monitor.com/config_api_v1/LogIn?TypeUID=LogInAsLvWebApi \
                                     --cookie-jar dm.auth -v \
                                     -H "Content-Type: application/json" \
                                     -d '{ "UID" : "'$ClientUID'" }')
                                 #echo $resp
                                 if [[ $resp = "{\"Success\":true,\"Result\":\"OK\"}" ]]
-                                then echo "client re-logged in"
+                                then echo "Login Successful"
                                 else
-                                    echo "ERROR logging in"
+                                    echo "ERROR: Failed to login"
                                     exit 403
                                 fi
                                 resp=$(curl -sb -X GET https://api.dotcom-monitor.com/config_api_v1/StressTest/$Result_ID/Result \
@@ -172,7 +172,7 @@ commands:
                                 sessions_failed=$((sessions_failed * 100))
                                 if [[ $sessions_failed -gt $limit ]]
                                 then
-                                    echo "ERROR stress $Result_ID too many failed sessions"
+                                    echo "ERROR: Too many failed sessions. Load Test $Result_ID exceeds the failed sessions threshold"
                                     exit 501
                                 fi
                             fi
@@ -180,9 +180,9 @@ commands:
                         now=$(date -d "$(date)" +'%s.%3N')
                     done
                     if [[ $found -eq 1 ]]
-                    then echo "Completed!"
+                    then echo "Completed successfully!"
                     else
-                        echo "ERROR stress $Result_ID failed"
+                        echo "ERROR: Load Test $Result_ID failed"
                         exit 500
                     fi
             - persist_to_workspace:
@@ -197,8 +197,10 @@ jobs:
     #resource_class: dmtest2/rc2
     steps:
       #- checkout
-      - run: echo "this is the build job"
+      - run: echo "This is the build job"
   login_via_api:
+    description:
+      Login to a LoadView account with your LoadView API UID. Provide load test parameters 
     docker:
       - image: cimg/base:current
     #resource_class: dmtest2/rc2
@@ -208,16 +210,22 @@ jobs:
           stress_id: 131492
           failed_sessions_percentage: 5
   get_st_details:
+    description:
+      Get load test details 
     docker:
       - image: cimg/base:current
     steps:
       - get_stress
   start:
+    description:
+      Starts a load test
     docker:
       - image: cimg/base:current
     steps:
       - run_stress
   get_st_results:
+    description:
+      Get load test run results
     docker:
       - image: cimg/base:current
     steps:

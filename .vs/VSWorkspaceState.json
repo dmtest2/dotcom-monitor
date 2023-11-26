@@ -1,7 +1,8 @@
 {
   "ExpandedNodes": [
-    ""
+    "",
+    "\\.circleci"
   ],
-  "SelectedNode": "\\C:\\Users\\magolind\\Source\\Repos\\dotcom-monitor",
+  "SelectedNode": "\\.circleci\\config.yml",
   "PreviewInSolutionExplorer": false
 }
