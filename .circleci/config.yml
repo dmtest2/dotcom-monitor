@@ -4,6 +4,8 @@
 version: 2.1
 description: |
     Run load tests using the LoadView platform. This orb allows the running of LoadView tests in the LoadView cloud as part of your deployment pipeline. 
+display:
+    home_url: https://loadview-testing.com    
     source_url: https://github.com/dmtest2/dotcom-monitor.git
 
 commands:
